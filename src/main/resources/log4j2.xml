@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- status log4j内部日志级别; monitorInterval扫描配置改动(秒) -->
+<Configuration status="off" monitorInterval="60">
+	<properties>
+		<property name="filename">logs/log4j.log</property>
+	</properties>
+	<Appenders>
+		<!--输出到控制台配置 -->
+		<Console name="Console" target="SYSTEM_OUT">
+			<PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss} %p %l %m%n" />
+		</Console>
+		<!--输出到文件配置 -->
+		<RollingFile name="file" fileName="${filename}" filePattern="${filename}.%d{yyyy-MM-dd}">
+			<PatternLayout pattern="%d{HH:mm:ss.SSS} %p %C:%L %m%n" />
+			<TimeBasedTriggeringPolicy interval="1" modulate="true" />
+		</RollingFile>
+	</Appenders>
+	<Loggers>
+		<!--com.xxx包下的日志输出策略，输出warn级别及以上级别的日志到控制台和文件
+		<Logger name="com.xxx" level="warn" additivity="false">
+			<AppenderRef ref="Console" />
+			<AppenderRef ref="file" />
+		</Logger> -->
+		
+		<!-- 其它日志输出策略 OFF、FATAL、ERROR、WARN、INFO、DEBUG、TRACE、ALL --> -->
+		<Root level="debug">
+			<AppenderRef ref="file" />
+			<AppenderRef ref="Console" />
+		</Root>
+	</Loggers>
+</Configuration>
