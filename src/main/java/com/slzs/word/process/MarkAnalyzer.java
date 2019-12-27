@@ -5,25 +5,28 @@ import java.util.List;
 import org.apache.poi.xwpf.usermodel.BodyElementType;
 import org.apache.poi.xwpf.usermodel.IBodyElement;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFHyperlinkRun;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 
+import com.slzs.util.ObjectUtil;
 import com.slzs.util.StringUtil;
 
 import lombok.extern.log4j.Log4j2;
 
 /**
  * 标记处理
- * @author 北京拓尔思信息技术股份有限公司
  * @author slzs
  * 2017年4月14日 下午1:17:43
  */
 @Log4j2
 public class MarkAnalyzer {
 
+    static final String MARK_REGX = "(?s).*\\$\\{.*\\}.*";
+    
     private boolean       markClear;
 
     private UBBAnalyzer   ubb;
@@ -105,19 +108,21 @@ public class MarkAnalyzer {
                         if (markEndStrIndex > -1) {// 标记结束
                             if (runTempText.length() > ++markEndStrIndex) {
                                 markKeySB.append(runTempText.substring(0, markEndStrIndex));
-                                markRun.setText(runTempText.substring(markEndStrIndex), 0); //截去当前位置标记文本
+                                ParagraphAnalyzer.clearRun(markRun);
+                                markRun.setText(runTempText.substring(markEndStrIndex)); //截去当前位置标记文本
                             } else {
                                 markKeySB.append(runTempText);
                                 //                                paragraph.removeRun(p--);//去掉当前位置标记
-                                markRun.setText("", 0);
+                                ParagraphAnalyzer.clearRun(markRun);
                             }
                             // 重写标记
                             markRun = runList.get(markBeginRunIndex);
-                            markRun.setText(markKeySB.toString(), 0); // setText是替换文本并保留原样式不变的最佳方案
+                            ParagraphAnalyzer.clearRun(markRun);
+                            markRun.setText(markKeySB.toString()); // setText是替换文本并保留原样式不变的最佳方案
                             markBeginRunIndex = -1;
                         } else {
                             //                            paragraph.removeRun(p--);
-                            markRun.setText("", 0);
+                            ParagraphAnalyzer.clearRun(markRun);
                             markKeySB.append(runTempText);
                         }
                     } else {
@@ -134,16 +139,32 @@ public class MarkAnalyzer {
                             // 标记开始
                             markEndStrIndex = runTempText.lastIndexOf("}");
                             markBeginStrIndex = runTempText.lastIndexOf("${");// 最后一个开始符
-                            if (markEndStrIndex < 0 || markEndStrIndex < markBeginStrIndex) { // 没有结束或结束符在开始符之前
-                                markKeySB = new StringBuffer("$");
-                                markKeySB.append(runTempText);
+                            if (markEndStrIndex < 0 || markBeginStrIndex < 0 || markEndStrIndex < markBeginStrIndex ) { // 没有结束或结束符在开始符之前
+//                                markKeySB.delete(0, markKeySB.length());
+//                                markKeySB.append(runTempText);
                                 //                                paragraph.removeRun(p--); // 移除当前位置
-                                markRun.setText("", 0);
-                                markBeginRunIndex = p - 1; // 记录run索引
+                                
+                                ParagraphAnalyzer.clearRun(markRun);
+
+                                XWPFRun lastRun = runList.get(--p);
+                                lastRun.setText(runTempText);
+
+                                if (markBeginRunIndex < 0 && markEndStrIndex < 0) {
+                                    markKeySB = new StringBuffer(lastRun.text());
+                                    markBeginRunIndex = p;
+                                }
                             }
                         }
                     }
                     markBeginMissing = runTempText.endsWith("$"); // 文本最后包含部分标记
+                } else {
+                    if (markRun instanceof XWPFHyperlinkRun) {
+                        continue; // 超链接
+                    }
+                    if (ObjectUtil.isNotEmpty(markRun.getCTR().getBrList())) {
+                        continue; // 分页
+                    }
+                    paragraph.removeRun(p--); // 移除当前位置
                 }
             }
         }
@@ -204,7 +225,7 @@ public class MarkAnalyzer {
         boolean empty = false;
         List<XWPFRun> runList = paragraph.getRuns();
         String content = runList.toString();
-        if (iteratorKey.length() > 0 && content.matches(".*\\$\\{" + iteratorKey + "\\:end\\}.*")) {
+        if (iteratorKey.length() > 0 && content.matches("(?s).*\\$\\{" + iteratorKey + "\\:end\\}.*")) {
             iteratorKey.delete(0, iteratorKey.length());
         }
         if (iteratorKey.length() > 0) {
@@ -212,7 +233,7 @@ public class MarkAnalyzer {
             if (log.isDebugEnabled()) {
                 log.debug("清理文档  "+iteratorKey+"空迭代数据");
             }
-        } else if (runList.toString().matches(".*\\$\\{.*\\}.*")) {// 包含key标记
+        } else if (runList.toString().matches(MARK_REGX)) {// 包含key标记
             empty = true;
             for (int p = 0; p < runList.size(); p++) {
                 XWPFRun markRun = runList.get(p);
@@ -221,13 +242,13 @@ public class MarkAnalyzer {
                     log.debug("清理文档${标记} 清理前:" + runTextTemp);
                 }
 
-                if (iteratorKey.length() == 0 && runTextTemp.matches(".*\\$\\{.*\\:start\\}.*")) {
+                if (iteratorKey.length() == 0 && runTextTemp.matches("(?s).*\\$\\{.*\\:start\\}.*")) {
                     // 发现start标记
-                    String key = runTextTemp.replaceAll(".*\\$\\{(.*)\\:start\\}.*", "$1"); //取key${key:start}
+                    String key = runTextTemp.replaceAll("(?s).*\\$\\{(.*)\\:start\\}.*", "$1"); //取key${key:start}
                     iteratorKey.append(key);
                 }
 
-                if (iteratorKey.length() > 0 && runTextTemp.matches(".*\\$\\{" + iteratorKey + "\\:end\\}.*")) {
+                if (iteratorKey.length() > 0 && runTextTemp.matches("(?s).*\\$\\{" + iteratorKey + "\\:end\\}.*")) {
                     // 发现end标记
                     iteratorKey.delete(0, iteratorKey.length());
                 }
@@ -235,7 +256,9 @@ public class MarkAnalyzer {
                 // 去除标记
                 runTextTemp = iteratorKey.length() > 0 ? "" : runTextTemp.replaceAll("\\$\\{.*?\\}", "");
 
-                markRun.setText(runTextTemp, 0);
+                ParagraphAnalyzer.clearRun(markRun);
+                markRun.setText(runTextTemp);
+                
                 empty = StringUtil.isEmpty(runTextTemp); // 是否空段落
 
                 if (log.isDebugEnabled()) {
@@ -245,7 +268,7 @@ public class MarkAnalyzer {
         }
         return empty;
     }
-
+    
     /**
      * ubb标记解析
      * @author slzs 

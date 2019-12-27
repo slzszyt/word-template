@@ -19,7 +19,6 @@ import com.slzs.util.StringUtil;
 
 /**
  * UBB代码处理器
- * @author 北京拓尔思信息技术股份有限公司
  * @author slzs
  * 2017年5月9日 下午1:57:14
  */
@@ -61,7 +60,7 @@ import com.slzs.util.StringUtil;
         for (IBodyElement element : bodyElements) {
             if (element instanceof XWPFParagraph) { // 段落
                 XWPFParagraph paragraph = (XWPFParagraph) element;
-                if (paragraph.getRuns() != null && !paragraph.getRuns().isEmpty() && paragraph.getText().matches(".*\\[.*\\].*\\[.*\\].*")) {
+                if (paragraph.getText().matches("(?s).*\\[.*\\].*\\[.*\\].*")) {
                     analysis(paragraph);
                 }
             } else if (element instanceof XWPFTable) { // 表格
@@ -386,8 +385,10 @@ import com.slzs.util.StringUtil;
                         }
                     } 
                 }
-                if (addNum == 0)
-                    run.setText(text.replace(beginTag, "").replace(endTag, ""),0);
+                if (addNum == 0){
+                    ParagraphAnalyzer.clearRun(run);
+                    run.setText(text.replace(beginTag, "").replace(endTag, ""));
+                }
             }
         }
     

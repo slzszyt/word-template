@@ -8,7 +8,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.poi.POIXMLDocumentPart;
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import org.apache.poi.util.Units;
 import org.apache.poi.xwpf.usermodel.Document;
@@ -22,7 +21,6 @@ import org.apache.xmlbeans.XmlException;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTHyperlink;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTP;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTR;
-import org.w3c.dom.Node;
 
 import com.slzs.util.ObjectUtil;
 import com.slzs.word.model.DataFillType;
@@ -33,7 +31,6 @@ import lombok.extern.log4j.Log4j2;
 
 /**
  * 段落内容处理
- * @author 北京拓尔思信息技术股份有限公司
  * @author slzs
  * 2017年4月26日 上午9:36:37
  */
@@ -42,13 +39,14 @@ class ParagraphAnalyzer {
 
     private DataFillAnalyzer dfAnalyzer;
     private IteratorAnalyzer iteratorAnalyzer;
+    private StyleAnalyzer styleAnalyzer;
 
-    public ParagraphAnalyzer(DataFillAnalyzer dfAnalyzer, IteratorAnalyzer iteratorAnalyzer) {
+    public ParagraphAnalyzer(DataFillAnalyzer dfAnalyzer, IteratorAnalyzer iteratorAnalyzer,StyleAnalyzer styleAnalyzer) {
         this.dfAnalyzer = dfAnalyzer;
         this.iteratorAnalyzer = iteratorAnalyzer;
+        this.styleAnalyzer = styleAnalyzer;
     }
 
-    
     /**
      * 段落数据处理
      * @author: slzs
@@ -56,9 +54,9 @@ class ParagraphAnalyzer {
      * @param document 文档对象
      * @param WordData 填充数据
      */
-    Status setParagraphContent(POIXMLDocumentPart document, XWPFParagraph paragraph, WordData data) {
+    Status setParagraphContent(XWPFParagraph paragraph, WordData data) {
         Status res = Status.SUCCESS;
-        if (paragraph.getText().matches(".*\\$\\{.*\\}.*")) {
+        if (paragraph.getText().matches(MarkAnalyzer.MARK_REGX)) {
             Map<String, String> textFieldMap = data.getTextFieldMap(); // 文本
             Map<String, Object> imageFieldMap = data.getImageFieldMap(); // 图片
 
@@ -68,8 +66,7 @@ class ParagraphAnalyzer {
                 res = setFieldMapData(textFieldMap, paragraph, nextKeyMap, DataFillType.TEXT_DATA);
                 if (res == Status.SUCCESS) {
                     // 设置图片数据
-                    res = setFieldMapData(imageFieldMap, paragraph, nextKeyMap,
-                            DataFillType.IMAGE_DATA);
+                    res = setFieldMapData(imageFieldMap, paragraph, nextKeyMap,DataFillType.IMAGE_DATA);
 
                     if (ObjectUtil.isNotEmpty(nextKeyMap)) {
                         for (String key : nextKeyMap.keySet()) {
@@ -117,8 +114,13 @@ class ParagraphAnalyzer {
             if (height == null) {
                 height = 200;
             }
-            markRun.setText("", 0);
+            clearRun(markRun);
+            
             markRun.addPicture(inputStream, Document.PICTURE_TYPE_JPEG, "slzs", Units.toEMU(width), Units.toEMU(height));
+            if (inputStream.markSupported()) {
+                // 重置流以便重复使用
+                inputStream.reset();
+            }
         } catch (Exception e) {
             log.error("图片写入异常:", e);
         }
@@ -137,96 +139,81 @@ class ParagraphAnalyzer {
      * @param dataType 数据类型
      */
     private Status setFieldMapData(Map<String, ?> fieldMap, XWPFParagraph paragraph, Map<String, Integer> nextKeyMap, DataFillType dataType) {
-        if (ObjectUtil.isNotEmpty(fieldMap)) {
-            for (String key : fieldMap.keySet()) {
-                if (!key.contains("#")) { // 忽略属性键值
-                    Object obj = fieldMap.get(key);
-                    if (obj != null) {
-                        List<XWPFRun> runList = paragraph.getRuns();
-                        String content = runList.toString();
-                        String markKey = "${" + key.trim() + "}";// ${标记}字符串
-                        String nextMark = null;
-                        String prefix = null;
-                        Integer count = 0;
-                        int tagIndex = key.lastIndexOf(".");
-                        if (tagIndex > 0) {
-                            prefix = key.trim().substring(0, tagIndex);
-                            nextMark = "${" + prefix + "#next}";// ${prefix#next}字符串
-                            count = dfAnalyzer.iteratorIndexMap.get(prefix);
-
-                            if (count == null)
-                                count = 0;
-
-                            // 处理嵌套迭代标记处理
-                            String iterRegex = "(.*\\$\\{" + prefix + ")(\\.[^\\.]*(\\.|\\:).*\\}.*)";
-                            if (content.matches(iterRegex)) {
-                                for (int p = 0; p < runList.size(); p++) {
-                                    XWPFRun markRun = runList.get(p);
-                                    if (markRun.toString().matches(iterRegex)) {
-                                        markRun.setText(markRun.toString().replaceAll(iterRegex, "$1" + count + "$2"), 0);
-                                    }
-                                }
-                            }
-                        }
-
-                        if (content.contains(markKey) || (nextMark != null && content.contains(nextMark))) {// 包含key标记
-                            for (int p = 0; p < runList.size() && (!nextKeyMap.containsKey(prefix) || p < nextKeyMap.get(prefix)); p++) {
-                                XWPFRun markRun = runList.get(p);
-                                if (markRun.toString().contains(markKey)) {
-
-                                    switch (dataType) {
-                                        case TEXT_DATA: // 文本类型数据
-                                            
-                                            insertText((String) obj, markRun, markKey);
-
-                                            if (fieldMap.containsKey(key + "#link")) { // 包含超链接                                                   
-                                                // 设置超链接
-                                                String relationId =
-                                                        paragraph.getDocument().getPackagePart().addExternalRelationship((String) fieldMap.get(key + "#link"), XWPFRelation.HYPERLINK.getRelation())
-                                                                .getId();
-                                                if (markRun instanceof XWPFHyperlinkRun) { // 超链接格式
-                                                    ((XWPFHyperlinkRun) markRun).setHyperlinkId(relationId); // 修改链接地址
-                                                } else { // 非超链接格式转换超链接-由于poi本身不支持，需要处理后重新构建文档，增加读写效率略有影响。可在模板上直接加上超链接，可直接修改链接省略转换的过程。
-
-                                                    CTP ctp = paragraph.getCTP();
-                                                    CTHyperlink hyperlink = ctp.addNewHyperlink(); // 增加hyperlink，目前只支持末尾插入，再通过xml调整位置
-                                                    hyperlink.setId(relationId); // 设置链接
-
-                                                    XmlCursor cursorH = hyperlink.newCursor();
-
-                                                    CTR ctr = markRun.getCTR();
-                                                    XmlCursor cursorR = ctr.newCursor();
-                                                    cursorH.moveXml(cursorR); // 移动链接到标记位置
-
-                                                    cursorR.toPrevSibling(); // 选择hyperlink
-
-                                                    Node node = cursorR.getDomNode(); // 获取hyperlink dom节点对象
-                                                    node.appendChild(ctr.getDomNode()); // 将标记dom节点移到hyperlink下
-
-                                                    return Status.REBUILD;
-                                                }
-                                            }
-
-                                            break;
-                                        case IMAGE_DATA:
-                                            // 插入图片
-                                            insertPicture(paragraph.getDocument(), obj, markRun, (Integer) fieldMap.get(key + "#width"), (Integer) fieldMap.get(key + "#height"),
-                                                    (Integer) fieldMap.get(key + "#type"));
-                                            break;
-                                        default:
-                                            break;
-                                    }
-
-                                } else if (!nextKeyMap.containsKey(prefix) && nextMark != null && markRun.toString().contains(nextMark)) {
-                                    // 记录迭代结束位置
-                                    nextKeyMap.put(prefix, p);
-                                    dfAnalyzer.iteratorIndexMap.put(prefix, ++count);
-                                }
-                            }
+        if (ObjectUtil.isEmpty(fieldMap)) {
+            return Status.SUCCESS;
+        }
+        for (String key : fieldMap.keySet()) {
+            if (key.contains("#")) { // 忽略属性键值
+                continue;
+            }
+            Object obj = fieldMap.get(key);
+            if (obj == null) {
+                continue;
+            }
+            List<XWPFRun> runList = paragraph.getRuns();
+            String content = runList.toString();
+            
+            String markKey = "${" + key.trim() + "}";// ${标记}字符串
+            String nextMark = null;
+            String prefix = null;
+            Integer count = 0;
+            int tagIndex = key.lastIndexOf(".");
+            if (tagIndex > 0) {
+                prefix = key.trim().substring(0, tagIndex);
+                nextMark = "${" + prefix + "#next}";// ${prefix#next}字符串
+                count = dfAnalyzer.iteratorIndexMap.get(prefix);
+                
+                if (count == null)
+                    count = 0;
+                
+                // 处理嵌套迭代标记处理
+                String iterRegex = "(.*\\$\\{" + prefix + ")(\\.[^\\.]*(\\.|\\:).*\\}.*)";
+                if (content.matches(iterRegex)) {
+                    for (int p = 0; p < runList.size(); p++) {
+                        XWPFRun markRun = runList.get(p);
+                        String runText = markRun.toString();
+                        if (runText.matches(iterRegex)) {
+                            clearRun(markRun);
+                            markRun.setText(runText.replaceAll(iterRegex, "$1" + count + "$2"), 0);
                         }
                     }
                 }
             }
+            
+            if (!content.contains(markKey) // 内容不包含当前数据标记 ，且->
+                    && (nextMark == null || !content.contains(nextMark))) { // 不包含迭代标记，跳过
+                continue;
+            }
+            
+            // 包含key标记
+            for (int p = 0; p < runList.size() && (!nextKeyMap.containsKey(prefix) || p < nextKeyMap.get(prefix)); p++) {
+                XWPFRun markRun = runList.get(p);
+                if (markRun.toString().contains(markKey)) {
+                    
+                    switch (dataType) {
+                        case TEXT_DATA: // 文本类型数据
+                            insertText((String) obj, markRun, markKey);
+                            if (fieldMap.containsKey(key + "#link")) { // 包含超链接           
+                                String url = (String) fieldMap.get(key + "#link");       
+                                setHyperlink((String) obj, url, paragraph, markRun);
+                            }
+                            break;
+                        case IMAGE_DATA:
+                            // 插入图片
+                            insertPicture(paragraph.getDocument(), obj, markRun, (Integer) fieldMap.get(key + "#width"), (Integer) fieldMap.get(key + "#height"),
+                                    (Integer) fieldMap.get(key + "#type"));
+                            break;
+                        default:
+                            break;
+                    }
+                    
+                } else if (!nextKeyMap.containsKey(prefix) && nextMark != null && markRun.toString().contains(nextMark)) {
+                    // 记录迭代结束位置
+                    nextKeyMap.put(prefix, p);
+                    dfAnalyzer.iteratorIndexMap.put(prefix, ++count);
+                }
+            }
+        
         }
 
         return Status.SUCCESS;
@@ -235,7 +222,47 @@ class ParagraphAnalyzer {
 
 
     /**
-     * 设置文本
+     * 设置超链接数据
+     * 模板本身是超链接格式，直接修改连接内容与显示文本
+     * 模板本身是普通文本，则需转换为超链接格式，再进一步处理
+     * @author slzs
+     * @param txt 显示文本
+     * @param url 点击跳转的超链接
+     * @param paragraph 当前段落
+     * @param markRun 当前文字块
+     * @date 2019/12/26 21:46
+     */
+    private void setHyperlink(String txt,String url,XWPFParagraph paragraph, XWPFRun markRun) {
+        // url实际关联定位
+        String relationId = paragraph.getDocument().getPackagePart()
+                    .addExternalRelationship(url,XWPFRelation.HYPERLINK.getRelation()).getId();
+        
+        if (markRun instanceof XWPFHyperlinkRun) { // 模板本身为超链接格式，直接修改地址
+            ((XWPFHyperlinkRun) markRun).setHyperlinkId(relationId);
+        } else { // 模板本身非超链接格式，先转换格式，再进一步处理
+            /** 创建超链接关系  **/
+            CTP ctp = paragraph.getCTP();
+            CTHyperlink hyperlink = ctp.addNewHyperlink(); // 增加hyperlink，目前只支持末尾插入，再通过xml调整位置
+            hyperlink.setId(relationId); // 设置链接
+            
+            /** 创建超链接显示文字 **/
+            CTR hr = hyperlink.addNewR();                                        
+            XWPFHyperlinkRun hrun = new XWPFHyperlinkRun(hyperlink, hr, paragraph);
+            hrun.setText(txt); // 设置显示文本
+            styleAnalyzer.styleClone(markRun, hrun); // 复制样式 
+            clearRun(markRun); // 清空当前标记
+            
+            /** 移动超链接位置 **/
+            XmlCursor cursorH = hyperlink.newCursor();
+            CTR ctr = markRun.getCTR();
+            XmlCursor cursorR = ctr.newCursor();
+            cursorH.moveXml(cursorR); // 移动链接到标记位置
+        }        
+    }
+
+    /**
+     * 设置文本数据
+     * @param text 文本数据支持换行符，其它支持标记见README
      * @author slzs 
      * 2017年4月26日 上午10:41:22
      */
@@ -251,11 +278,13 @@ class ParagraphAnalyzer {
             else
                 textTmp = text;
 
-            if (markRun.toString().contains(markKey))
-                markRun.setText(markRun.toString().replace(markKey, textTmp), 0);
-            else
+            if (markRun.toString().contains(markKey)){
+                String replaceText = markRun.toString().replace(markKey, textTmp);
+                clearRun( markRun );
+                markRun.setText(replaceText);
+            }else{
                 markRun.setText(textTmp);
-
+            }
             if (next = hasBr) {
                 markRun.addBreak();
                 if (next = (text.indexOf(br) + 1 < text.length())) {
@@ -263,5 +292,20 @@ class ParagraphAnalyzer {
                 }
             }
         } while (next);
+    }
+
+    /**
+     * 直接删除run顺序问题会导致上下文异常，所以统一用空文本方式处理，可在文档输出前统一顺序移除
+     * @author slzs
+     * @date 2019/12/26 21:53
+     * @param run
+     */
+    static void clearRun( XWPFRun run ){
+        if(run!=null){
+            int size = run.getCTR().sizeOfTArray();
+            for (int i = 0; i < size; i++) {
+                run.setText("", i);
+            }
+        }
     }
 }

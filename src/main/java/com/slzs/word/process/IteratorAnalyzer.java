@@ -16,11 +16,11 @@ import org.apache.xmlbeans.XmlCursor;
 
 import com.slzs.util.ObjectUtil;
 import com.slzs.util.StringUtil;
+import com.slzs.word.model.Status;
 import com.slzs.word.model.WordData;
 
 /**
  * 迭代数据分析
- * @author 北京拓尔思信息技术股份有限公司
  * @author slzs
  * 2017年4月14日 下午2:50:17
  */
@@ -42,15 +42,18 @@ class IteratorAnalyzer {
      * 2015-1-30 下午5:44:41
      * @param document
      * @param iteratorMap
+     * @return 
      */
-    void analy(XWPFDocument document, Map<String, List<WordData>> iteratorMap) {
+    Status analy(XWPFDocument document, Map<String, List<WordData>> iteratorMap) {
+        Status res = Status.SUCCESS;
         for (String key : iteratorMap.keySet()) {
             List<WordData> iteratorDataList = iteratorMap.get(key); // 迭代器数据
 
             Map<IBodyElement, List<XWPFRun>> cloneRunMapList = getCloneElement(document, iteratorDataList, key); // 解析迭代需要克隆的内容
 
-            copyCloneData(document, cloneRunMapList, iteratorDataList, key); // 复制克隆数据
+            res = copyCloneData(document, cloneRunMapList, iteratorDataList, key); // 复制克隆数据
         }
+        return res;
     }
     
     /**
@@ -105,7 +108,7 @@ class IteratorAnalyzer {
                                 if (paragraph.removeRun(runPos)) {
                                     runPos--;
                                 } else {
-                                    run.setText(null, 0);
+                                    ParagraphAnalyzer.clearRun(run);
                                     pass++;
                                 }
                                 clearBlank = true;
@@ -159,87 +162,94 @@ class IteratorAnalyzer {
      * @param cloneRunMapList 需要复制的数据
      * @param iteratorDataList 迭代的数据
      * @param key
+     * @return 
      */
-    private void copyCloneData(XWPFDocument document, Map<IBodyElement, List<XWPFRun>> cloneRunMapList,
+    private Status copyCloneData(XWPFDocument document, Map<IBodyElement, List<XWPFRun>> cloneRunMapList,
             List<WordData> iteratorDataList, String key) {
+        if (ObjectUtil.isEmpty(cloneRunMapList)) {
+            return Status.SUCCESS;
+        }
 
         /** 处理迭代数据，复制数据添加标记 **/
-        if (ObjectUtil.isNotEmpty(cloneRunMapList)) {
-            // 最后添加的元素
-            IBodyElement lastBodyElement = null;
-            for (int i = 1; i < iteratorDataList.size(); i++) {
-                IBodyElement[] keyArray = new IBodyElement[cloneRunMapList.keySet().size()];
-                cloneRunMapList.keySet().toArray(keyArray);
-                for (int c = 0; c < keyArray.length; c++) {
-                    IBodyElement bodyElement = keyArray[c];
+        Status res = Status.SUCCESS;
+        // 最后添加的元素
+        IBodyElement lastBodyElement = null;
+        for (int i = 1; i < iteratorDataList.size(); i++) {
+            IBodyElement[] keyArray = new IBodyElement[cloneRunMapList.keySet().size()];
+            cloneRunMapList.keySet().toArray(keyArray);
+            for (int c = 0; c < keyArray.length; c++) {
+                IBodyElement bodyElement = keyArray[c];
 
-                    XmlCursor cursor = null;
+                XmlCursor cursor = null;
 
-                    int bIndex = document.getBodyElements()
-                            .lastIndexOf(lastBodyElement == null ? keyArray[keyArray.length - 1] : lastBodyElement);
+                int bIndex = document.getBodyElements()
+                        .lastIndexOf(lastBodyElement == null ? keyArray[keyArray.length - 1] : lastBodyElement);
 
-                    int pIndex = document.getParagraphPos(bIndex);
-                    int tIndex = document.getTablePos(bIndex);
-                    IBodyElement bTemp = null; // 临时位置，用于第一次定位，写入新位置后删除
+                int pIndex = document.getParagraphPos(bIndex);
+                int tIndex = document.getTablePos(bIndex);
+                IBodyElement bTemp = null; // 临时位置，用于第一次定位，写入新位置后删除
 
-                    /** 在上次位置后位置追加 **/
+                /** 在上次位置后位置追加 **/
+                if (pIndex > -1) {
+                    // 最后一次为段落
+                    pIndex++;
+                    if (pIndex >= document.getParagraphs().size())
+                        bTemp = document.createParagraph(); // 以后面位置做参照向前追加，如果后面没有需要创建临时位置
+                    cursor = document.getDocument().getBody().getPArray(pIndex).newCursor();
+                } else if (tIndex > -1) {
+                    // 最后一次为表格
+                    tIndex++;
+                    if (tIndex >= document.getTables().size())
+                        bTemp = document.createTable(); // 以后面位置做参照向前追加，如果后面没有需要创建临时位置
+                    cursor = document.getDocument().getBody().getTblArray(tIndex).newCursor();
+                }
+
+                if (c == 0) {
+                    XWPFParagraph nodeParagraph = document.insertNewParagraph(cursor);
+                    XWPFRun nodeRun = nodeParagraph.createRun(); // 标记循环节点
+                    nodeRun.setText("${" + key + "#next}");
                     if (pIndex > -1) {
-                        // 最后一次为段落
-                        pIndex++;
-                        if (pIndex >= document.getParagraphs().size())
-                            bTemp = document.createParagraph(); // 以后面位置做参照向前追加，如果后面没有需要创建临时位置
-                        cursor = document.getDocument().getBody().getPArray(pIndex).newCursor();
-                    } else if (tIndex > -1) {
-                        // 最后一次为表格
-                        tIndex++;
-                        if (tIndex >= document.getTables().size())
-                            bTemp = document.createTable(); // 以后面位置做参照向前追加，如果后面没有需要创建临时位置
-                        cursor = document.getDocument().getBody().getTblArray(tIndex).newCursor();
-                    }
-
-                    if (c == 0) {
-                        XWPFParagraph nodeParagraph = document.insertNewParagraph(cursor);
-                        XWPFRun nodeRun = nodeParagraph.createRun(); // 标记循环节点
-                        nodeRun.setText("${" + key + "#next}");
-                        if (pIndex > -1) {
-                            cursor = document.getDocument().getBody().getPArray(pIndex + 1).newCursor();
-                        } else {
-                            cursor = document.getDocument().getBody().getTblArray(tIndex).newCursor();
-                        }
-                    }
-
-                    if (bodyElement.getElementType() == BodyElementType.PARAGRAPH) {
-
-                        XWPFParagraph newParagraph = document.insertNewParagraph(cursor);
-                        styleAnalyzer.styleClone((XWPFParagraph) bodyElement, newParagraph);// 克隆段落样式
-
-                        List<XWPFRun> cloneRunList = cloneRunMapList.get(bodyElement);
-                        if (ObjectUtil.isNotEmpty(cloneRunList)) {// 写入段中内容
-                            for (XWPFRun sourceRun : cloneRunList) {
-                                XWPFRun newRun = newParagraph.createRun();
-                                newRun.getCTR().set(sourceRun.getCTR().copy());
-                            }
-                        }
-
-                        // 最后写入对象
-                        lastBodyElement = newParagraph;
-                    } else if (bodyElement.getElementType() == BodyElementType.TABLE) {
-
-                        XWPFTable newTable = document.insertNewTbl(cursor);
-                        newTable.getCTTbl().set(((XWPFTable) bodyElement).getCTTbl().copy()); // 整个表格复制
-
-                        // 最后写入对象
-                        lastBodyElement = newTable;
-                    }
-                    if (bTemp != null) {
-                        // 删除临时标记段落
-                        document.removeBodyElement(document.getBodyElements().indexOf(bTemp));
+                        cursor = document.getParagraphArray(pIndex + 1).getCTP().newCursor();
+                    } else {
+                        cursor = document.getTableArray(tIndex).getCTTbl().newCursor();
                     }
                 }
 
-            }
-        }
+                if (bodyElement.getElementType() == BodyElementType.PARAGRAPH) {
 
+                    XWPFParagraph newParagraph = document.insertNewParagraph(cursor);
+                    styleAnalyzer.styleClone((XWPFParagraph) bodyElement, newParagraph);// 克隆段落样式
+
+                    List<XWPFRun> cloneRunList = cloneRunMapList.get(bodyElement);
+                    if (ObjectUtil.isNotEmpty(cloneRunList)) {// 写入段中内容
+                        for (XWPFRun sourceRun : cloneRunList) {
+                            XWPFRun newRun = newParagraph.createRun();
+                            newRun.getCTR().set(sourceRun.getCTR().copy());
+                        }
+                    }
+
+                    // 最后写入对象
+                    lastBodyElement = newParagraph;
+                } else if (bodyElement.getElementType() == BodyElementType.TABLE) {
+
+                    XWPFTable newTable = document.insertNewTbl(cursor);
+                    XWPFTable srcTable = ((XWPFTable) bodyElement);
+
+                    newTable.getCTTbl().set(srcTable.getCTTbl().copy()); // 基于xml完全拷贝
+                    
+                    // 最后写入对象
+                    lastBodyElement = newTable;
+                    res = Status.REBUILD;
+                }
+                if (bTemp != null) {
+                    // 删除临时标记段落
+                    document.removeBodyElement(document.getBodyElements().indexOf(bTemp));
+                }
+            }
+
+        }
+    
+        return res;
     }
 
 

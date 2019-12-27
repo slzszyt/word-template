@@ -1,6 +1,7 @@
 package com.slzs.word;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -104,7 +105,7 @@ public class WordUtilTest {
 
         }
 
-        WordFactory.getInstance().reportByTemplate(srcPath, destPath, data);
+        WordFactory.reportByTemplate(srcPath, destPath, data);
 
     }
 
@@ -183,11 +184,11 @@ public class WordUtilTest {
 
         data.addIterator("hot", dataList);
 
-        WordFactory.getInstance().reportByTemplate(srcPath, destPath, data);
+        WordFactory.reportByTemplate(srcPath, destPath, data);
     }
 
     @Test
-    public void templateMerge() {
+    public void templateMerge() throws IOException {
         String classPath = this.getClass().getResource("/").getPath();
 
         String template1 = classPath + "report/ttt1.docx";
@@ -196,7 +197,7 @@ public class WordUtilTest {
 
         String outPath = classPath + "report/merge_" + (int) (Math.random() * 10000) + ".docx";
 
-        WordTemplateFactory.getInstance().mergeDocument(outPath, new String[] { template1, template2 });
+        WordFactory.mergeDocument(outPath, new String[] { template1, template2 });
     }
 
     @Test
@@ -219,7 +220,7 @@ public class WordUtilTest {
         data.addTextField("test_font", "字体的[font=黑体]黑体[/font]加[font=隶书]隶书[/font]");
         data.addTextField("test_all",
                 "组合[strikes]双删[/strikes][u]下[b]粗[/b]划线[/u]多个[b]粗[i]粗斜[/i]粗[size=30]大[color=ff0000]红[/color]粗[/size]字[/b][font=微软雅黑]微软[strike]删除[/strike]雅黑[/font]组标记");
-        WordFactory.getInstance().reportByTemplate(template1, outPath, data);
+        WordFactory.reportByTemplate(template1, outPath, data);
     }
 
     @Test
@@ -249,7 +250,145 @@ public class WordUtilTest {
         String destPath = classPath + "report/hottest_" + Long.parseLong((Math.random() * 10000 + "").split("\\.")[0])
                 + ".docx";
 
-        WordFactory.getInstance().reportByTemplate(srcPath, destPath, data);
+        WordFactory.reportByTemplate(srcPath, destPath, data);
     }
 
+    @Test
+    public void multitThread() {
+        Thread thArray [] = new Thread[5]; 
+        for (int i = 0; i < thArray.length; i++) {
+            final int id = i;
+            Thread t = new Thread(new Runnable() {
+                public void run() {
+                    alertTest(id);
+                }
+            });
+            thArray[i] = t;
+        }
+        for (int i = 0; i < thArray.length; i++) {
+            thArray[i].start();
+        }
+        boolean alive;
+        do {
+            alive = false;
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            for (int i = 0; i < thArray.length; i++) {
+                alive = alive || thArray[i].isAlive();
+            }
+        } while(alive);
+    }
+
+    @Test
+    public void alertTest() {
+        alertTest(1);
+    }
+    
+    public void alertTest(int id) {
+
+        WordData data = new WordData();
+        List<WordData> dataList = new ArrayList<WordData>();
+        {
+            WordData rowData = new WordData();
+            rowData.addTextField("a", "aaaaa"+id);
+            rowData.addTextField("b", "bbbbbbb"+id);
+            rowData.addTextField("c", "ccccccc"+id);
+            rowData.addTextField("d", "dddd"+id);
+            rowData.addTextField("e", "eeeeeeeee"+id);
+            rowData.addTextField("f", "ffffffff"+id);
+            rowData.addTextField("g", "gggggg"+id);
+            dataList.add(rowData);
+        }
+        {
+            WordData rowData = new WordData();
+            rowData.addTextField("a", "aaaaa");
+            rowData.addTextField("b", "bbbbbbb");
+            rowData.addTextField("c", "ccccccc");
+            rowData.addTextField("d", "dddd");
+            rowData.addTextField("e", "eeeeeeeee");
+            rowData.addTextField("f", "ffffffff");
+            rowData.addTextField("g", "gggggg");
+            dataList.add(rowData);
+        }
+        {
+            WordData rowData = new WordData();
+            rowData.addTextField("a", "aaaaa");
+            rowData.addTextField("b", "bbbbbbb");
+            rowData.addTextField("c", "ccccccc");
+            rowData.addTextField("d", "dddd");
+            rowData.addTextField("e", "eeeeeeeee");
+            rowData.addTextField("f", "ffffffff");
+            rowData.addTextField("g", "gggggg");
+            dataList.add(rowData);
+        }
+        data.addTable("tb", dataList);
+
+        String classPath = this.getClass().getResource("/").getPath();
+        String srcPath = classPath + "report/alert_tpl.docx";
+        String destPath = classPath + "report/alert_" + Long.parseLong((Math.random() * 10000 + "").split("\\.")[0])+ ".docx";
+
+        WordFactory.reportByTemplate(srcPath, destPath, data);
+    }
+
+
+    @Test
+    public void tableTest() {
+        // 迭代表格测试
+        WordData listData = new WordData();
+
+        List<WordData> tbList = new ArrayList<>();
+        {
+            WordData rowData = new WordData();
+            rowData.addTextField("aa", "aaaaa");
+            rowData.addTextField("bb", "bbbbbbb");
+            rowData.addTextField("cc", "ccccccc");
+            rowData.addTextField("dd", "dddd");
+            rowData.addTextField("ee", "eeeeeeeee");
+            rowData.addTextField("ff", "ffffffff");
+            rowData.addTextField("gg", "gggggg");
+            
+            tbList.add(rowData);
+        }
+
+        {
+            WordData rowData = new WordData();
+            rowData.addTextField("aa", "1111111");
+            rowData.addTextField("bb", "22222222");
+            rowData.addTextField("cc", "333333333");
+            rowData.addTextField("dd", "444444444");
+            rowData.addTextField("ee", "555555555");
+            rowData.addTextField("ff", "6666666666");
+            rowData.addTextField("gg", "88888888");
+            
+            tbList.add(rowData);
+        }
+        
+        listData.addIterator("list", tbList);
+
+        String classPath = this.getClass().getResource("/").getPath();
+        String srcPath = classPath + "report/table_tpl.docx";
+        String destPath = classPath + "report/table_" + Long.parseLong((Math.random() * 10000 + "").split("\\.")[0])+ ".docx";
+
+        WordFactory.reportByTemplate(srcPath, destPath, listData);
+    }
+
+    /*@Test
+    public void tableTest() {
+        String classPath = this.getClass().getResource("/").getPath();
+        String srcPath = "C:\\template\\template22\\tableTest.docx";
+        String destPath = classPath + "report/alert_" + (int) (Math.random() * 10000) + ".docx";
+        WordData data1 = new WordData();
+        List<WordData> list = new ArrayList<>();
+        for(int i=0;i<3;i++){
+            WordData data = new WordData();
+            list.add(data);
+        }
+        data1.addIterator("event", list);
+        WordFactory.reportByTemplate(srcPath, destPath, data1);
+    
+        
+    }*/
 }

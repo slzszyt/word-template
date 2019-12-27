@@ -15,7 +15,6 @@ import com.slzs.word.model.WordData;
 
 /**
  * 数据填充分析器
- * @author 北京拓尔思信息技术股份有限公司
  * @author slzs
  * 2017年4月14日 下午1:17:43
  */
@@ -30,7 +29,7 @@ public class DataFillAnalyzer {
     public DataFillAnalyzer(StyleAnalyzer styleAnalyzer) {
         iteratorIndexMap = new HashMap<String, Integer>();
         iteratorAnalyzer = new IteratorAnalyzer(this,styleAnalyzer);
-        paragraphAnalyzer = new ParagraphAnalyzer(this, iteratorAnalyzer);
+        paragraphAnalyzer = new ParagraphAnalyzer(this, iteratorAnalyzer,styleAnalyzer);
         tableAnalyzer = new TableAnalyzer(this,paragraphAnalyzer,styleAnalyzer);
     }
     
@@ -121,25 +120,29 @@ public class DataFillAnalyzer {
      * 2016-1-12 上午11:46:58
      * @param document 
      * @param data
+     * @return 
      */
-    public void analyData(XWPFDocument document, WordData data) {
+    public Status analyData(XWPFDocument document, WordData data) {
+        Status res = Status.SUCCESS;
         if (analyzedList == null) {
             analyzedList = new ArrayList<>();
+            // 初始解析表格标签，清空无数据单元格
+            tableAnalyzer.analy(document, data.getTableMap());
         }
         if (!analyzedList.contains(data)) {
-            // 解析表格标签
-            tableAnalyzer.analy(document, data.getTableMap());
+            
             if (data.hasTable()) {
                 data = tableAnalyzer.tableAllNext(data);
             }
 
             if (data.hasIterator()) {
                 // 迭代标签解析
-                iteratorAnalyzer.analy(document, data.getIteratorMap());
+                res = iteratorAnalyzer.analy(document, data.getIteratorMap());
                 data = iteratorAnalyzer.iteratorAllNext(data);
             }
             analyzedList.add(data);
         }
+        return res;
     }
 
     /**
@@ -151,8 +154,8 @@ public class DataFillAnalyzer {
      * @param data
      * @return
      */
-    public Status setParagraphContent(XWPFDocument document, XWPFParagraph paragraph, WordData data) {
-        return paragraphAnalyzer.setParagraphContent(document, paragraph, data);
+    public Status setParagraphContent(XWPFParagraph paragraph, WordData data) {
+        return paragraphAnalyzer.setParagraphContent(paragraph, data);
     }
 
     /**
@@ -163,7 +166,7 @@ public class DataFillAnalyzer {
      * @param table
      * @param data
      */
-    public void setTableContent(XWPFDocument document, XWPFTable table, WordData data) {
-        tableAnalyzer.setTableContent(document, table, data);
+    public void setTableContent(XWPFTable table, WordData data) {
+        tableAnalyzer.setTableContent(table, data);
     }
 }

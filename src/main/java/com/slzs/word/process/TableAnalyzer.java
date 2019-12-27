@@ -16,20 +16,21 @@ import com.slzs.word.model.WordData;
 
 /**
  * 表格处理
- * @author 北京拓尔思信息技术股份有限公司
  * @author slzs
  * 2017年4月14日 下午3:00:33
  */
 class TableAnalyzer {
-    private DataFillAnalyzer dfAnalyzer;
-    private ParagraphAnalyzer paragraphAnalyzer;
-    private StyleAnalyzer styleAnalyzer;
 
-    public TableAnalyzer(DataFillAnalyzer dfAnalyzer,ParagraphAnalyzer paragraphAnalyzer,StyleAnalyzer styleAnalyzer) {
+    private DataFillAnalyzer  dfAnalyzer;
+    private ParagraphAnalyzer paragraphAnalyzer;
+    private StyleAnalyzer     styleAnalyzer;
+
+    public TableAnalyzer(DataFillAnalyzer dfAnalyzer, ParagraphAnalyzer paragraphAnalyzer, StyleAnalyzer styleAnalyzer) {
         this.dfAnalyzer = dfAnalyzer;
         this.paragraphAnalyzer = paragraphAnalyzer;
         this.styleAnalyzer = styleAnalyzer;
     }
+
     /**
      * 表格标签解析
      * @author: slzs
@@ -45,7 +46,7 @@ class TableAnalyzer {
         for (XWPFTable table : tableList) { // 循环表格处理
 
             List<WordData> rowDataList = null; // 多行数据
-            List<XWPFTableCell> copyCellList = null;
+            List<XWPFTableCell> sourceCellList = null;
             List<XWPFTableRow> rowList = table.getRows();
             XWPFTableRow copyRow = null;
             if (ObjectUtil.isNotEmpty(rowList)) {
@@ -54,14 +55,14 @@ class TableAnalyzer {
                     List<XWPFTableCell> cellList = row.getTableCells();
                     XWPFTableCell firstCell = cellList.get(0);
                     String firstCellText = firstCell.getText();
-                    if (firstCellText.matches(".*\\$\\{.*:rows\\}.*")) {
+                    if (firstCellText.matches("(?s).*\\$\\{.*:rows\\}.*")) {
                         boolean hasData = false;
                         if (tableMap != null) {
                             for (String key : tableMap.keySet()) {
                                 if (firstCellText.contains("${" + key + ":rows}")) {
                                     hasData = true;
                                     rowDataList = tableMap.get(key);
-                                    copyCellList = row.getTableCells(); // 复制本行
+                                    sourceCellList = row.getTableCells(); // 复制本行
                                     copyRow = row;
                                     break;
                                 }
@@ -81,22 +82,32 @@ class TableAnalyzer {
                 }
             }
 
-            if (ObjectUtil.isNotEmpty(rowDataList) && copyRow != null && ObjectUtil.isNotEmpty(copyCellList)) {
+            if (ObjectUtil.isNotEmpty(rowDataList) && copyRow != null && ObjectUtil.isNotEmpty(sourceCellList)) {
                 // 根据数据复制行数
                 for (int i = 1; i < rowDataList.size(); i++) {
                     XWPFTableRow newRow = table.createRow();
+                    while (sourceCellList.size() > newRow.getTableICells().size()) {
+                        // 补全缺失单元格
+                        newRow.addNewTableCell();
+                    }
                     newRow.setHeight(copyRow.getHeight()); // 设置相同行高
-                    List<XWPFTableCell> cellList = newRow.getTableCells();
-                    for (int c = 0; c < cellList.size(); c++) {
-                        XWPFTableCell cell = cellList.get(c);
-                        XWPFTableCell copyCell = copyCellList.get(c);
-                        while (cell.getParagraphs().size() > 0) {
-                            cell.removeParagraph(0); // 清理多余段落
+                    List<XWPFTableCell> toCellList = newRow.getTableCells();
+                    for (int c = 0; c < toCellList.size(); c++) {
+                        XWPFTableCell toCell = toCellList.get(c);
+                        XWPFTableCell sourceCell = sourceCellList.get(c);
+                        while (toCell.getParagraphs().size() > 0) {
+                            toCell.removeParagraph(0); // 清理多余段落
                         }
-                        List<XWPFParagraph> pList = copyCell.getParagraphs();
-                        for (XWPFParagraph p : pList) { // 复制单元格内段落
-                            XWPFParagraph newP = cell.addParagraph();
+                        
+                        // copy单元格样式
+                        styleAnalyzer.styleClone(sourceCell,toCell);
+
+                        /* 复制单元格内段落 */
+                        List<XWPFParagraph> pList = sourceCell.getParagraphs();
+                        for (XWPFParagraph p : pList) { 
+                            XWPFParagraph newP = toCell.addParagraph();
                             styleAnalyzer.styleClone(p, newP);// 克隆段落样式
+                            
                             List<XWPFRun> runList = p.getRuns();
                             if (ObjectUtil.isNotEmpty(runList)) {
                                 for (XWPFRun run : runList) { // 复制段落内字符
@@ -105,26 +116,21 @@ class TableAnalyzer {
                                 }
                             }
                         }
-
                     }
                 }
             }
         }
     }
-    
-
 
     /**
      * 表格数据内容处理
-     * 
-     * @author: slzs 
+     * @author: slzs
      * 2015-2-12 下午2:09:10
      * @param document
      * @param table
      * @param data
-     * 
      */
-    void setTableContent(XWPFDocument document, XWPFTable table, WordData data) {
+    void setTableContent(XWPFTable table, WordData data) {
         List<XWPFTableRow> rowList = table.getRows();
         for (XWPFTableRow row : rowList) { // 循环处理行
             List<XWPFTableCell> cellList = row.getTableCells();
@@ -132,7 +138,7 @@ class TableAnalyzer {
             for (XWPFTableCell cell : cellList) { // 循环处理列
                 List<XWPFParagraph> cellPghList = cell.getParagraphs();
                 for (XWPFParagraph cellPgp : cellPghList) { // 处理单元格内段落
-                    paragraphAnalyzer.setParagraphContent(document, cellPgp, data);
+                    paragraphAnalyzer.setParagraphContent(cellPgp, data);
                 }
             }
 
@@ -147,7 +153,6 @@ class TableAnalyzer {
             }
         }
     }
-
 
     /**
      * 加载指定表格下一行数据
@@ -166,15 +171,13 @@ class TableAnalyzer {
         }
         return data;
     }
-    
+
     /**
      * 全部表格加载下一行数据
-     * 
-     * @author: slzs 
+     * @author: slzs
      * 2015-2-5 下午3:28:40
      * @param data
      * @return WordData
-     * 
      */
     public WordData tableAllNext(WordData data) {
         if (data.hasTable()) {
